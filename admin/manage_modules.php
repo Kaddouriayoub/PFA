@@ -16,7 +16,7 @@ try {
 }
 
 // Check authentication
-if (!isset($_SESSION['user_id']) {
+if (!isset($_SESSION['user_id'])) {
     header("Location: index.php");
     exit;
 }
@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     JOIN Semestre s ON m.id_semestre = s.id_semestre
                     JOIN Annee a ON s.id_annee = a.id_annee
                     JOIN Filiere f ON a.id_filiere = f.id_filiere
-                    ORDER BY f.nom_filiere, a.annee_universitaire, s.nom_semestre
+                    ORDER BY f.nom_filiere, a.annee_universitaire, s.nom_semestre, m.nom_module
                 ");
                 $stmt->execute();
                 $modules = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -149,15 +149,233 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <head>
     <title>Gestion des Modules - ENSIAS</title>
     <style>
-        /* Copiez le même style que manage_professors.php */
-        /* ... */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            background: #f5f7fa;
+            color: #333;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .back-btn {
+            background: #95a5a6;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            display: inline-block;
+            margin-bottom: 20px;
+            transition: background 0.3s;
+        }
+        
+        .back-btn:hover {
+            background: #7f8c8d;
+        }
+        
+        .management-section {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 5px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary { 
+            background: #3498db; 
+            color: white; 
+        }
+        
+        .btn-success { 
+            background: #27ae60; 
+            color: white; 
+        }
+        
+        .btn-warning { 
+            background: #f39c12; 
+            color: white; 
+        }
+        
+        .btn-danger { 
+            background: #e74c3c; 
+            color: white; 
+        }
+        
+        .btn:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        tr:hover {
+            background-color: #f5f7fa;
+        }
+        
+        .badge {
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+        }
         
         .module-details {
-            margin-top: 20px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #3498db;
+            margin: 10px 0;
             padding: 15px;
-            background: #f8f9fa;
-            border-radius: 5px;
+            border-radius: 0 5px 5px 0;
+        }
+        
+        .modal {
             display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-content {
+            background-color: #fff;
+            margin: 10% auto;
+            padding: 25px;
+            border-radius: 8px;
+            width: 500px;
+            max-width: 90%;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            animation: modalFadeIn 0.3s;
+        }
+        
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+        
+        .close:hover {
+            color: #333;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .form-group input, 
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 14px;
+            transition: border 0.3s;
+        }
+        
+        .form-group input:focus, 
+        .form-group select:focus {
+            border-color: #3498db;
+            outline: none;
+        }
+        
+        .alert {
+            padding: 12px 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 30px;
+            color: #7f8c8d;
+        }
+        
+        .section-title {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #3498db;
+        }
+        
+        .elements-table {
+            margin-top: 15px;
+            width: 100%;
+        }
+        
+        .elements-table th {
+            background-color: #e8f4fc;
         }
     </style>
 </head>
@@ -171,10 +389,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <div class="container">
         <a href="admin_dashboard.php" class="back-btn">← Retour au Dashboard</a>
 
-        <div class="professor-management">
-            <h3>Liste des Modules</h3>
-            <button class="btn btn-success" onclick="openAddModuleModal()">Ajouter un module</button>
-            <button class="btn btn-primary" onclick="refreshModules()">Actualiser</button>
+        <div class="management-section">
+            <h3 class="section-title">Liste des Modules</h3>
+            <button class="btn btn-success" onclick="openAddModuleModal()">
+                <i class="fas fa-plus"></i> Ajouter un module
+            </button>
+            <button class="btn btn-primary" onclick="refreshModules()">
+                <i class="fas fa-sync-alt"></i> Actualiser
+            </button>
             
             <div id="alert-container"></div>
             
@@ -228,14 +450,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     </div>
 
     <script>
+        // Global variables
         let modules = [];
         let semestres = [];
 
+        // Initialize the page
         document.addEventListener('DOMContentLoaded', function() {
             loadSemestres();
             loadModules();
         });
 
+        // Load all modules
         function loadModules() {
             fetch('', {
                 method: 'POST',
@@ -259,6 +484,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             });
         }
 
+        // Load semestres for dropdown
         function loadSemestres() {
             fetch('', {
                 method: 'POST',
@@ -279,6 +505,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             });
         }
 
+        // Populate semestre select dropdown
         function populateSemestreSelect() {
             const select = document.getElementById('add_id_semestre');
             select.innerHTML = '<option value="">Sélectionner un semestre</option>';
@@ -291,6 +518,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             });
         }
 
+        // Display modules in table
         function displayModules() {
             const container = document.getElementById('modules-table-container');
             
@@ -318,25 +546,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 html += `
                     <tr>
                         <td>${module.id_module}</td>
-                        <td>${module.nom_module}</td>
+                        <td><strong>${module.nom_module}</strong></td>
                         <td>${module.nom_filiere}</td>
                         <td>${module.annee_universitaire}</td>
                         <td>${module.nom_semestre}</td>
                         <td>
-                            <button class="btn btn-primary btn-sm" onclick="showModuleElements(${module.id_module}, '${module.nom_module}')">
-                                Éléments
+                            <button class="btn btn-primary" onclick="showModuleElements(${module.id_module}, '${module.nom_module}')">
+                                Voir éléments
                             </button>
-                            <button class="btn btn-danger btn-sm" onclick="deleteModule(${module.id_module}, '${module.nom_module}')">
+                            <button class="btn btn-danger" onclick="deleteModule(${module.id_module}, '${module.nom_module}')">
                                 Supprimer
                             </button>
                         </td>
                     </tr>
-                    <tr id="module-elements-${module.id_module}" class="module-details">
+                    <tr id="module-elements-${module.id_module}" class="module-details" style="display:none;">
                         <td colspan="6">
                             <div id="elements-container-${module.id_module}">
                                 Chargement des éléments...
                             </div>
-                            <button class="btn btn-success btn-sm" onclick="openAddElementModal(${module.id_module})">
+                            <button class="btn btn-success" onclick="openAddElementModal(${module.id_module})">
                                 Ajouter un élément
                             </button>
                         </td>
@@ -352,12 +580,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             container.innerHTML = html;
         }
 
+        // Show module elements
         function showModuleElements(moduleId, moduleName) {
             const row = document.getElementById(`module-elements-${moduleId}`);
             const container = document.getElementById(`elements-container-${moduleId}`);
             
             // Toggle display
-            if (row.style.display === 'none' || !row.style.display) {
+            if (row.style.display === 'none') {
                 row.style.display = 'table-row';
                 
                 // Load elements if not already loaded
@@ -371,13 +600,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        let elementsHtml = `<h4>Éléments du module ${moduleName}:</h4>`;
+                        let elementsHtml = `<h4>Éléments du module "${moduleName}"</h4>`;
                         
                         if (data.elements.length === 0) {
                             elementsHtml += '<p>Aucun élément trouvé pour ce module.</p>';
                         } else {
                             elementsHtml += `
-                                <table>
+                                <table class="elements-table">
                                     <thead>
                                         <tr>
                                             <th>ID</th>
@@ -396,7 +625,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                         <td>${element.nom_element}</td>
                                         <td>${element.volume_horaire} heures</td>
                                         <td>
-                                            <button class="btn btn-danger btn-sm" onclick="deleteElement(${element.id_element}, '${element.nom_element}')">
+                                            <button class="btn btn-danger" onclick="deleteElement(${element.id_element}, '${element.nom_element}')">
                                                 Supprimer
                                             </button>
                                         </td>
@@ -412,33 +641,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         
                         container.innerHTML = elementsHtml;
                     } else {
-                        container.innerHTML = '<p class="error">Erreur lors du chargement des éléments</p>';
+                        container.innerHTML = '<p class="alert-error">Erreur lors du chargement des éléments</p>';
                     }
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    container.innerHTML = '<p class="error">Erreur de connexion</p>';
+                    container.innerHTML = '<p class="alert-error">Erreur de connexion</p>';
                 });
             } else {
                 row.style.display = 'none';
             }
         }
 
+        // Open add module modal
         function openAddModuleModal() {
             document.getElementById('addModuleModal').style.display = 'block';
             document.getElementById('addModuleForm').reset();
         }
 
+        // Close add module modal
         function closeAddModuleModal() {
             document.getElementById('addModuleModal').style.display = 'none';
         }
 
+        // Open add element modal
         function openAddElementModal(moduleId) {
             document.getElementById('add_element_module_id').value = moduleId;
             document.getElementById('addElementModal').style.display = 'block';
             document.getElementById('addElementForm').reset();
         }
 
+        // Close add element modal
         function closeAddElementModal() {
             document.getElementById('addElementModal').style.display = 'none';
         }
@@ -507,7 +740,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 elementsHtml = '<p>Aucun élément trouvé pour ce module.</p>';
                             } else {
                                 elementsHtml = `
-                                    <table>
+                                    <table class="elements-table">
                                         <thead>
                                             <tr>
                                                 <th>ID</th>
@@ -526,7 +759,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                             <td>${element.nom_element}</td>
                                             <td>${element.volume_horaire} heures</td>
                                             <td>
-                                                <button class="btn btn-danger btn-sm" onclick="deleteElement(${element.id_element}, '${element.nom_element}')">
+                                                <button class="btn btn-danger" onclick="deleteElement(${element.id_element}, '${element.nom_element}')">
                                                     Supprimer
                                                 </button>
                                             </td>
@@ -553,8 +786,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             });
         });
 
+        // Delete module
         function deleteModule(moduleId, moduleName) {
-            if (confirm(`Êtes-vous sûr de vouloir supprimer le module "${moduleName}" ?`)) {
+            if (confirm(`Êtes-vous sûr de vouloir supprimer le module "${moduleName}" ? Cette action est irréversible.`)) {
                 const formData = new FormData();
                 formData.append('action', 'delete_module');
                 formData.append('id_module', moduleId);
@@ -579,8 +813,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
 
+        // Delete element
         function deleteElement(elementId, elementName) {
-            if (confirm(`Êtes-vous sûr de vouloir supprimer l'élément "${elementName}" ?`)) {
+            if (confirm(`Êtes-vous sûr de vouloir supprimer l'élément "${elementName}" ? Cette action est irréversible.`)) {
                 const formData = new FormData();
                 formData.append('action', 'delete_element');
                 formData.append('id_element', elementId);
@@ -610,22 +845,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
 
+        // Refresh modules
         function refreshModules() {
             loadModules();
             showAlert('Liste des modules actualisée', 'success');
         }
 
+        // Show alert message
         function showAlert(message, type) {
             const container = document.getElementById('alert-container');
             const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
             
             container.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
             
+            // Auto hide after 5 seconds
             setTimeout(() => {
                 container.innerHTML = '';
             }, 5000);
         }
 
+        // Close modal when clicking outside
         window.onclick = function(event) {
             const addModal = document.getElementById('addModuleModal');
             const addElementModal = document.getElementById('addElementModal');
