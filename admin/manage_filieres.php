@@ -506,7 +506,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <table>
                     <thead>
                         <tr>
-                            <th>ID</th>
                             <th>Nom</th>
                             <th>Actions</th>
                         </tr>
@@ -517,11 +516,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             filieres.forEach(filiere => {
                 html += `
                     <tr>
-                        <td>${filiere.id_filiere}</td>
                         <td>${filiere.nom_filiere}</td>
                         <td>
                             <button class="btn btn-primary btn-sm" onclick="showFiliereAnnees(${filiere.id_filiere}, '${filiere.nom_filiere}')">
-                                Années
+                                Niveaux
                             </button>
                             <button class="btn btn-danger btn-sm" onclick="deleteFiliere(${filiere.id_filiere}, '${filiere.nom_filiere}')">
                                 Supprimer
@@ -568,17 +566,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        let anneesHtml = `<h4>Années de la filière ${filiereName}:</h4>`;
+                        let anneesHtml = `<h4>Niveaux de la filière ${filiereName}:</h4>`;
                         
                         if (data.annees.length === 0) {
-                            anneesHtml += '<p>Aucune année trouvée pour cette filière.</p>';
+                            anneesHtml += '<p>Aucun niveau trouvé pour cette filière.</p>';
                         } else {
                             anneesHtml += `
                                 <table>
                                     <thead>
                                         <tr>
-                                            <th>ID</th>
-                                            <th>Année Universitaire</th>
                                             <th>Niveau</th>
                                             <th>Actions</th>
                                         </tr>
@@ -589,8 +585,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             data.annees.forEach(annee => {
                                 anneesHtml += `
                                     <tr>
-                                        <td>${annee.id_annee}</td>
-                                        <td>${annee.annee_universitaire}</td>
                                         <td>${annee.niveau}</td>
                                         <td>
                                             <button class="btn btn-primary btn-sm" onclick="showAnneeSemestres(${annee.id_annee}, '${annee.annee_universitaire} - ${annee.niveau}')">
@@ -662,7 +656,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 <table>
                                     <thead>
                                         <tr>
-                                            <th>ID</th>
                                             <th>Nom</th>
                                             <th>Actions</th>
                                         </tr>
@@ -673,7 +666,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             data.semestres.forEach(semestre => {
                                 semestresHtml += `
                                     <tr>
-                                        <td>${semestre.id_semestre}</td>
                                         <td>${semestre.nom_semestre}</td>
                                         <td>
                                             <button class="btn btn-danger btn-sm" onclick="deleteSemestre(${semestre.id_semestre}, '${semestre.nom_semestre}')">
@@ -800,8 +792,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                     <table>
                                         <thead>
                                             <tr>
-                                                <th>ID</th>
-                                                <th>Année Universitaire</th>
                                                 <th>Niveau</th>
                                                 <th>Actions</th>
                                             </tr>
@@ -812,7 +802,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 data.annees.forEach(annee => {
                                     anneesHtml += `
                                         <tr>
-                                            <td>${annee.id_annee}</td>
                                             <td>${annee.annee_universitaire}</td>
                                             <td>${annee.niveau}</td>
                                             <td>
@@ -896,7 +885,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                     <table>
                                         <thead>
                                             <tr>
-                                                <th>ID</th>
                                                 <th>Nom</th>
                                                 <th>Actions</th>
                                             </tr>
@@ -907,7 +895,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 data.semestres.forEach(semestre => {
                                     semestresHtml += `
                                         <tr>
-                                            <td>${semestre.id_semestre}</td>
                                             <td>${semestre.nom_semestre}</td>
                                             <td>
                                                 <button class="btn btn-danger btn-sm" onclick="deleteSemestre(${semestre.id_semestre}, '${semestre.nom_semestre}')">

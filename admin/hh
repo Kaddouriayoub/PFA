@@ -1,0 +1,1078 @@
+<?php
+// manage_professors.php
+session_start();
+
+// Database connection
+$servername = "localhost";
+$username = "root";
+$password = "";
+$dbname = "ensias_payment";
+
+try {
+    $conn = new PDO("mysql:host=$servername;dbname=$dbname;charset=utf8mb4", $username, $password);
+    $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    
+    // Check if required tables exist
+    $tables = [
+        'Professeur',
+        'Utilisateur',
+        'Developpement_Prof'
+    ];
+    
+    foreach ($tables as $table) {
+        $stmt = $conn->prepare("SHOW TABLES LIKE ?");
+        $stmt->execute([$table]);
+        if ($stmt->rowCount() == 0) {
+            die("Table $table n'existe pas dans la base de données!");
+        }
+    }
+    
+    // Check if there are any professors
+    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM Professeur");
+    $stmt->execute();
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($result['count'] == 0) {
+        echo "<div class='alert alert-info'>Aucun professeur n'est actuellement enregistré dans la base de données.</div>";
+    }
+} catch(PDOException $e) {
+    die("Connection failed: " . $e->getMessage());
+}
+
+// Check authentication
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'admin') {
+    header("Location: index.php?error=access_denied");
+    exit;
+}
+
+// Grille des salaires par grade
+$grades_salaires = [
+    'Professeur Assistant' => 450.00,
+    'Professeur Adjoint' => 600.00,
+    'Professeur Habilité' => 800.00,
+    'Professeur de l\'Enseignement Supérieur' => 1000.00,
+    'Professeur Vacataire' => 300.00,
+    'Chargé de Cours' => 350.00,
+    'Maître de Conférences' => 700.00
+];
+
+// Handle AJAX requests
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    header('Content-Type: application/json');
+    
+    try {
+        switch ($_POST['action']) {
+            case 'get_professors':
+                try {
+                    // Log the query for debugging
+                    error_log("Executing get_professors query");
+                    
+                    $stmt = $conn->prepare("
+                        SELECT p.id_prof, p.nom, p.prenom, p.type_prof, u.username,
+                               dp.grade, dp.date_debut_grade, dp.date_fin_grade,
+                               CASE 
+                                   WHEN dp.grade IS NOT NULL THEN dp.grade
+                                   ELSE 'Aucun grade'
+                               END as grade_actuel,
+                               CASE 
+                                   WHEN dp.grade = 'Professeur Assistant' THEN 450.00
+                                   WHEN dp.grade = 'Professeur Adjoint' THEN 600.00
+                                   WHEN dp.grade = 'Professeur Habilité' THEN 800.00
+                                   WHEN dp.grade = 'Professeur de l\'Enseignement Supérieur' THEN 1000.00
+                                   WHEN dp.grade = 'Professeur Vacataire' THEN 300.00
+                                   WHEN dp.grade = 'Chargé de Cours' THEN 350.00
+                                   WHEN dp.grade = 'Maître de Conférences' THEN 700.00
+                                   ELSE 0.00
+                               END as salaire_par_seance
+                        FROM Professeur p 
+                        JOIN Utilisateur u ON p.id_user = u.id_user 
+                        LEFT JOIN Developpement_Prof dp ON p.id_prof = dp.id_prof 
+                            AND (dp.date_fin_grade IS NULL OR dp.date_fin_grade >= CURDATE())
+                            AND dp.date_debut_grade <= CURDATE()
+                        ORDER BY p.id_prof
+                    ");
+                    
+                    $stmt->execute();
+                    $professors = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    // Log the number of results for debugging
+                    error_log("Found " . count($professors) . " professors");
+                    
+                    if (empty($professors)) {
+                        echo json_encode(['success' => true, 'professors' => []]);
+                    } else {
+                        echo json_encode(['success' => true, 'professors' => $professors]);
+                    }
+                } catch (PDOException $e) {
+                    error_log("Database error in get_professors: " . $e->getMessage());
+                    echo json_encode(['success' => false, 'message' => 'Erreur de base de données: ' . $e->getMessage()]);
+                } catch (Exception $e) {
+                    error_log("Error in get_professors: " . $e->getMessage());
+                    echo json_encode(['success' => false, 'message' => 'Erreur: ' . $e->getMessage()]);
+                }
+                exit;
+                
+            case 'get_available_users':
+                $stmt = $conn->prepare("
+                    SELECT u.id_user, u.nom, u.prenom, u.username 
+                    FROM Utilisateur u 
+                    JOIN Role r ON u.id_role = r.id_role 
+                    WHERE r.nom_role IN ('professor', 'professeur') 
+                    AND u.id_user NOT IN (SELECT id_user FROM Professeur)
+                    ORDER BY u.nom, u.prenom
+                ");
+                $stmt->execute();
+                $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                echo json_encode(['success' => true, 'users' => $users]);
+                exit;
+                
+            case 'get_professor_grades':
+                $id_prof = intval($_POST['id_prof']);
+                $stmt = $conn->prepare("
+                    SELECT * FROM Developpement_Prof 
+                    WHERE id_prof = ? 
+                    ORDER BY date_debut_grade DESC
+                ");
+                $stmt->execute([$id_prof]);
+                $grades = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                echo json_encode(['success' => true, 'grades' => $grades]);
+                exit;
+                
+            case 'add_professor':
+                $nom = trim($_POST['nom']);
+                $prenom = trim($_POST['prenom']);
+                $type_prof = $_POST['type_prof'];
+                $id_user = intval($_POST['id_user']);
+                
+                // Validate input
+                if (empty($nom) || empty($prenom) || empty($type_prof) || $id_user <= 0) {
+                    echo json_encode(['success' => false, 'message' => 'Tous les champs sont obligatoires']);
+                    exit;
+                }
+                
+                // Check if user is already a professor
+                $stmt = $conn->prepare("SELECT COUNT(*) FROM Professeur WHERE id_user = ?");
+                $stmt->execute([$id_user]);
+                if ($stmt->fetchColumn() > 0) {
+                    echo json_encode(['success' => false, 'message' => 'Cet utilisateur est déjà enregistré comme professeur']);
+                    exit;
+                }
+                
+                // Insert new professor (without salaire_par_seance)
+                $stmt = $conn->prepare("
+                    INSERT INTO Professeur (nom, prenom, type_prof, id_user) 
+                    VALUES (?, ?, ?, ?)
+                ");
+                $stmt->execute([$nom, $prenom, $type_prof, $id_user]);
+                
+                // Get the last inserted ID to add initial grade
+                $id_prof = $conn->lastInsertId();
+                
+                // Add default grade if specified
+                if (isset($_POST['grade'])) {
+                    $grade = $_POST['grade'];
+                    $stmt = $conn->prepare("
+                        INSERT INTO Developpement_Prof (id_prof, grade, date_debut_grade)
+                        VALUES (?, ?, CURDATE())
+                    ");
+                    $stmt->execute([$id_prof, $grade]);
+                }
+                
+                echo json_encode(['success' => true, 'message' => 'Professeur ajouté avec succès']);
+                exit;
+                
+            case 'update_professor':
+                $id_prof = intval($_POST['id_prof']);
+                $nom = trim($_POST['nom']);
+                $prenom = trim($_POST['prenom']);
+                $type_prof = $_POST['type_prof'];
+                
+                // Validate input
+                if ($id_prof <= 0 || empty($nom) || empty($prenom) || empty($type_prof)) {
+                    echo json_encode(['success' => false, 'message' => 'Tous les champs sont obligatoires']);
+                    exit;
+                }
+                
+                // Update professor
+                $stmt = $conn->prepare("
+                    UPDATE Professeur 
+                    SET nom = ?, prenom = ?, type_prof = ? 
+                    WHERE id_prof = ?
+                ");
+                $stmt->execute([$nom, $prenom, $type_prof, $id_prof]);
+                
+                // Update grade if specified
+                if (isset($_POST['grade'])) {
+                    $grade = $_POST['grade'];
+                    $stmt = $conn->prepare("
+                        UPDATE Developpement_Prof 
+                        SET grade = ?, date_debut_grade = CURDATE()
+                        WHERE id_prof = ? 
+                        AND (date_fin_grade IS NULL OR date_fin_grade >= CURDATE())
+                    ");
+                    $stmt->execute([$grade, $id_prof]);
+                }
+                
+                echo json_encode(['success' => true, 'message' => 'Professeur modifié avec succès']);
+                exit;
+                
+            case 'add_grade':
+                $id_prof = intval($_POST['id_prof']);
+                $grade = trim($_POST['grade']);
+                $date_debut = $_POST['date_debut_grade'];
+                $date_fin = !empty($_POST['date_fin_grade']) ? $_POST['date_fin_grade'] : null;
+                
+                // Validate input
+                if ($id_prof <= 0 || empty($grade) || empty($date_debut)) {
+                    echo json_encode(['success' => false, 'message' => 'Le professeur, le grade et la date de début sont obligatoires']);
+                    exit;
+                }
+                
+                // Check if grade exists in our salary grid
+                global $grades_salaires;
+                if (!array_key_exists($grade, $grades_salaires)) {
+                    echo json_encode(['success' => false, 'message' => 'Grade non reconnu']);
+                    exit;
+                }
+                
+                // Begin transaction
+                $conn->beginTransaction();
+                
+                try {
+                    // Close any current active grade for this professor
+                    $stmt = $conn->prepare("
+                        UPDATE Developpement_Prof 
+                        SET date_fin_grade = DATE_SUB(?, INTERVAL 1 DAY)
+                        WHERE id_prof = ? AND date_fin_grade IS NULL
+                    ");
+                    $stmt->execute([$date_debut, $id_prof]);
+                    
+                    // Insert new grade
+                    $stmt = $conn->prepare("
+                        INSERT INTO Developpement_Prof (grade, date_debut_grade, date_fin_grade, id_prof) 
+                        VALUES (?, ?, ?, ?)
+                    ");
+                    $stmt->execute([$grade, $date_debut, $date_fin, $id_prof]);
+                    
+                    $conn->commit();
+                    echo json_encode(['success' => true, 'message' => 'Grade ajouté avec succès']);
+                } catch (Exception $e) {
+                    $conn->rollback();
+                    throw $e;
+                }
+                exit;
+                
+            case 'update_grade':
+                $id_dev = intval($_POST['id_dev']);
+                $grade = trim($_POST['grade']);
+                $date_debut = $_POST['date_debut_grade'];
+                $date_fin = !empty($_POST['date_fin_grade']) ? $_POST['date_fin_grade'] : null;
+                
+                // Validate input
+                if ($id_dev <= 0 || empty($grade) || empty($date_debut)) {
+                    echo json_encode(['success' => false, 'message' => 'Tous les champs obligatoires doivent être remplis']);
+                    exit;
+                }
+                
+                // Check if grade exists in our salary grid
+                global $grades_salaires;
+                if (!array_key_exists($grade, $grades_salaires)) {
+                    echo json_encode(['success' => false, 'message' => 'Grade non reconnu']);
+                    exit;
+                }
+                
+                // Update grade
+                $stmt = $conn->prepare("
+                    UPDATE Developpement_Prof 
+                    SET grade = ?, date_debut_grade = ?, date_fin_grade = ? 
+                    WHERE id_dev = ?
+                ");
+                $stmt->execute([$grade, $date_debut, $date_fin, $id_dev]);
+                
+                echo json_encode(['success' => true, 'message' => 'Grade modifié avec succès']);
+                exit;
+                
+            case 'delete_grade':
+                $id_dev = intval($_POST['id_dev']);
+                
+                $stmt = $conn->prepare("DELETE FROM Developpement_Prof WHERE id_dev = ?");
+                $stmt->execute([$id_dev]);
+                
+                echo json_encode(['success' => true, 'message' => 'Grade supprimé avec succès']);
+                exit;
+                
+            case 'delete_professor':
+                $id_prof = intval($_POST['id_prof']);
+                
+                // Check if professor has related records
+                $tables_to_check = ['Seance_Reelle', 'Developpement_Prof'];
+                foreach ($tables_to_check as $table) {
+                    $stmt = $conn->prepare("SELECT COUNT(*) FROM $table WHERE id_prof = ?");
+                    $stmt->execute([$id_prof]);
+                    if ($stmt->fetchColumn() > 0) {
+                        echo json_encode(['success' => false, 'message' => 'Impossible de supprimer ce professeur car il a des séances ou développements associés']);
+                        exit;
+                    }
+                }
+                
+                $stmt = $conn->prepare("DELETE FROM Professeur WHERE id_prof = ?");
+                $stmt->execute([$id_prof]);
+                
+                echo json_encode(['success' => true, 'message' => 'Professeur supprimé avec succès']);
+                exit;
+        }
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => 'Erreur: ' . $e->getMessage()]);
+        exit;
+    }
+}
+?>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gestion des Professeurs - ENSIAS</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #f5f5f5;
+        }
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .back-btn {
+            background: #95a5a6;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        .back-btn:hover {
+            background: #7f8c8d;
+        }
+        .professor-management {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 2px;
+            font-size: 12px;
+        }
+        
+        .btn-primary { background: #3498db; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-warning { background: #f39c12; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn:hover { opacity: 0.8; }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .type-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        
+        .type-permanent {
+            background-color: #27ae60;
+            color: white;
+        }
+        
+        .type-vacataire {
+            background-color: #f39c12;
+            color: white;
+        }
+        
+        .grade-badge {
+            padding: 3px 6px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: bold;
+            background-color: #6c757d;
+            color: white;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.4);
+        }
+        
+        .modal-content {
+            background-color: #fefefe;
+            margin: 2% auto;
+            padding: 20px;
+            border: none;
+            border-radius: 8px;
+            width: 600px;
+            max-width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: black;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        
+        .alert {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .salary {
+            font-weight: bold;
+            color: #27ae60;
+        }
+        
+        .grades-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .grade-item {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        
+        .grade-current {
+            border-color: #27ae60;
+            background-color: #d4edda;
+        }
+        
+        .salary-grid {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        
+        .salary-grid h4 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        
+        .salary-grid table {
+            margin-top: 10px;
+        }
+        
+        .salary-grid td {
+            padding: 5px 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>Gestion des Professeurs</h1>
+        </div>
+    </div>
+
+    <div class="container">
+        <a href="admin_dashboard.php" class="back-btn">← Retour au Dashboard</a>
+
+        <div class="professor-management">
+            <h3>Liste des Professeurs</h3>
+            <button class="btn btn-success" onclick="openAddProfessorModal()">Ajouter un professeur</button>
+            <button class="btn btn-primary" onclick="refreshProfessors()">Actualiser</button>
+            <button class="btn btn-info" onclick="showSalaryGrid()">Grille des salaires</button>
+            
+            <div id="alert-container"></div>
+            
+            <div id="professors-table-container">
+                <div class="loading">Chargement des professeurs...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Professor Modal -->
+    <div id="addProfessorModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeAddProfessorModal()">&times;</span>
+            <h3>Ajouter un nouveau professeur</h3>
+            <form id="addProfessorForm">
+                <div class="form-group">
+                    <label for="add_nom">Nom:</label>
+                    <input type="text" id="add_nom" name="nom" required>
+                </div>
+                <div class="form-group">
+                    <label for="add_prenom">Prénom:</label>
+                    <input type="text" id="add_prenom" name="prenom" required>
+                </div>
+                <div class="form-group">
+                    <label for="add_id_user">Utilisateur associé:</label>
+                    <select id="add_id_user" name="id_user" required>
+                        <option value="">Sélectionner un utilisateur</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="add_type_prof">Type de professeur:</label>
+                    <select id="add_type_prof" name="type_prof" required>
+                        <option value="">Sélectionner le type</option>
+                        <option value="permanent">Permanent</option>
+                        <option value="vacataire">Vacataire</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="add_grade">Grade:</label>
+                    <select id="add_grade" name="grade">
+                        <option value="">Sélectionner un grade</option>
+                        <option value="Professeur Assistant">Professeur Assistant (450.00 DH)</option>
+                        <option value="Professeur Adjoint">Professeur Adjoint (600.00 DH)</option>
+                        <option value="Professeur Habilité">Professeur Habilité (800.00 DH)</option>
+                        <option value="Professeur de l'Enseignement Supérieur">Professeur de l'Enseignement Supérieur (1000.00 DH)</option>
+                        <option value="Professeur Vacataire">Professeur Vacataire (300.00 DH)</option>
+                        <option value="Chargé de Cours">Chargé de Cours (350.00 DH)</option>
+                        <option value="Maître de Conférences">Maître de Conférences (700.00 DH)</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-success">Ajouter</button>
+                <button type="button" class="btn" onclick="closeAddProfessorModal()">Annuler</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Professor Modal -->
+    <div id="editProfessorModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditProfessorModal()">&times;</span>
+            <h3>Modifier le professeur</h3>
+            <form id="editProfessorForm">
+                <input type="hidden" id="edit_id_prof" name="id_prof">
+                <div class="form-group">
+                    <label for="edit_nom">Nom:</label>
+                    <input type="text" id="edit_nom" name="nom" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_prenom">Prénom:</label>
+                    <input type="text" id="edit_prenom" name="prenom" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_type_prof">Type de professeur:</label>
+                    <select id="edit_type_prof" name="type_prof" required>
+                        <option value="permanent">Permanent</option>
+                        <option value="vacataire">Vacataire</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit_grade">Grade:</label>
+                    <select id="edit_grade" name="grade">
+                        <option value="Professeur Assistant">Professeur Assistant (450.00 DH)</option>
+                        <option value="Professeur Adjoint">Professeur Adjoint (600.00 DH)</option>
+                        <option value="Professeur Habilité">Professeur Habilité (800.00 DH)</option>
+                        <option value="Professeur de l'Enseignement Supérieur">Professeur de l'Enseignement Supérieur (1000.00 DH)</option>
+                        <option value="Professeur Vacataire">Professeur Vacataire (300.00 DH)</option>
+                        <option value="Chargé de Cours">Chargé de Cours (350.00 DH)</option>
+                        <option value="Maître de Conférences">Maître de Conférences (700.00 DH)</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-warning">Modifier</button>
+                <button type="button" class="btn" onclick="closeEditProfessorModal()">Annuler</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Grades Management Modal -->
+    <div id="gradesModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeGradesModal()">&times;</span>
+            <h3 id="grades-modal-title">Gestion des grades</h3>
+            
+            <!-- Add Grade Form -->
+            <div class="salary-grid">
+                <h4>Ajouter un nouveau grade</h4>
+                <form id="addGradeForm">
+                    <input type="hidden" id="grade_id_prof" name="id_prof">
+                    <div class="form-group">
+                        <label for="add_grade">Grade:</label>
+                        <select id="add_grade" name="grade" required>
+                            <option value="">Sélectionner un grade</option>
+                            <option value="Professeur Assistant">Professeur Assistant (450.00 DH)</option>
+                            <option value="Professeur Adjoint">Professeur Adjoint (600.00 DH)</option>
+                            <option value="Professeur Habilité">Professeur Habilité (800.00 DH)</option>
+                            <option value="Professeur de l'Enseignement Supérieur">Professeur de l'Enseignement Supérieur (1000.00 DH)</option>
+                            <option value="Professeur Vacataire">Professeur Vacataire (300.00 DH)</option>
+                            <option value="Chargé de Cours">Chargé de Cours (350.00 DH)</option>
+                            <option value="Maître de Conférences">Maître de Conférences (700.00 DH)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="add_date_debut_grade">Date de début:</label>
+                        <input type="date" id="add_date_debut_grade" name="date_debut_grade" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="add_date_fin_grade">Date de fin (optionnel):</label>
+                        <input type="date" id="add_date_fin_grade" name="date_fin_grade">
+                    </div>
+                    <button type="submit" class="btn btn-success">Ajouter le grade</button>
+                </form>
+            </div>
+            
+            <!-- Grades List -->
+            <h4>Historique des grades</h4>
+            <div id="grades-list" class="grades-list">
+                <div class="loading">Chargement des grades...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Grade Modal -->
+    <div id="editGradeModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditGradeModal()">&times;</span>
+            <h3>Modifier le grade</h3>
+            <form id="editGradeForm">
+                <input type="hidden" id="edit_id_dev" name="id_dev">
+                <div class="form-group">
+                    <label for="edit_grade">Grade:</label>
+                    <select id="edit_grade" name="grade" required>
+                        <option value="Professeur Assistant">Professeur Assistant (450.00 DH)</option>
+                        <option value="Professeur Adjoint">Professeur Adjoint (600.00 DH)</option>
+                        <option value="Professeur Habilité">Professeur Habilité (800.00 DH)</option>
+                        <option value="Professeur de l'Enseignement Supérieur">Professeur de l'Enseignement Supérieur (1000.00 DH)</option>
+                        <option value="Professeur Vacataire">Professeur Vacataire (300.00 DH)</option>
+                        <option value="Chargé de Cours">Chargé de Cours (350.00 DH)</option>
+                        <option value="Maître de Conférences">Maître de Conférences (700.00 DH)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit_date_debut_grade">Date de début:</label>
+                    <input type="date" id="edit_date_debut_grade" name="date_debut_grade" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_date_fin_grade">Date de fin (optionnel):</label>
+                    <input type="date" id="edit_date_fin_grade" name="date_fin_grade">
+                </div>
+                <button type="submit" class="btn btn-warning">Modifier</button>
+                <button type="button" class="btn" onclick="closeEditGradeModal()">Annuler</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Salary Grid Modal -->
+    <div id="salaryGridModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeSalaryGridModal()">&times;</span>
+            <h3>Grille des salaires par grade</h3>
+            <div class="salary-grid">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Grade</th>
+                            <th>Salaire par séance (DH)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Professeur Assistant</td><td class="salary">450.00</td></tr>
+                        <tr><td>Professeur Adjoint</td><td class="salary">600.00</td></tr>
+                        <tr><td>Professeur Habilité</td><td class="salary">800.00</td></tr>
+                        <tr><td>Professeur de l'Enseignement Supérieur</td><td class="salary">1000.00</td></tr>
+                        <tr><td>Professeur Vacataire</td><td class="salary">300.00</td></tr>
+                        <tr><td>Chargé de Cours</td><td class="salary">350.00</td></tr>
+                        <tr><td>Maître de Conférences</td><td class="salary">700.00</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let professors = [];
+        let availableUsers = [];
+        let currentProfessorGrades = [];
+        const gradesSalaires = {
+            'grade A': 200.00,
+            'grade B': 300.00,
+            'grade C': 400.00
+        };
+
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAvailableUsers();
+            loadProfessors();
+        });
+
+        // Load all professors
+        function loadProfessors() {
+            fetch('', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=get_professors'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    professors = data.professors;
+                    displayProfessors();
+                } else {
+                    showAlert('Erreur lors du chargement des professeurs', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Erreur de connexion', 'error');
+            });
+        }
+
+        // Load available users
+        function loadAvailableUsers() {
+            fetch('', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=get_available_users'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    availableUsers = data.users;
+                    displayAvailableUsers();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Erreur lors du chargement des utilisateurs', 'error');
+            });
+        }
+
+        // Display professors in table
+        function displayProfessors() {
+            const container = document.getElementById('professors-table-container');
+            
+            if (professors.length === 0) {
+                container.innerHTML = '<p>Aucun professeur trouvé.</p>';
+                return;
+            }
+
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nom</th>
+                            <th>Prénom</th>
+                            <th>Username</th>
+                            <th>Type</th>
+                            <th>Grade</th>
+                            <th>Salaire/Séance</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            professors.forEach(prof => {
+                const typeClass = prof.type_prof === 'permanent' ? 'type-permanent' : 'type-vacataire';
+                const gradeDisplay = prof.id_grade ? 
+                    `<span class="grade-badge">${prof.nom_grade}</span>` : 
+                    '<span class="grade-badge">Aucun grade</span>';
+                const salaryDisplay = prof.id_grade ? 
+                    `<span class="salary">${parseFloat(prof.salaire_par_seance).toFixed(2)} DH</span>` : 
+                    '<span class="salary">0.00 DH</span>';
+                
+                html += `
+                    <tr>
+                        <td>${prof.id_prof}</td>
+                        <td>${prof.nom}</td>
+                        <td>${prof.prenom}</td>
+                        <td>${prof.username}</td>
+                        <td><span class="type-badge ${typeClass}">${prof.type_prof}</span></td>
+                        <td>${gradeDisplay}</td>
+                        <td>${salaryDisplay}</td>
+                        <td>
+                            <button class="btn btn-warning btn-sm" onclick="openEditProfessorModal(${prof.id_prof})">
+                                Modifier
+                            </button>
+                            <button class="btn btn-info btn-sm" onclick="openGradesModal(${prof.id_prof})">
+                                Grades
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteProfessor(${prof.id_prof}, '${prof.nom} ${prof.prenom}')">
+                                Supprimer
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        // Open grades modal
+        function openGradesModal(profId) {
+            const prof = professors.find(p => p.id_prof == profId);
+            if (!prof) return;
+
+            document.getElementById('grades-modal-title').textContent = `Gestion des grades pour ${prof.nom} ${prof.prenom}`;
+            document.getElementById('grade_id_prof').value = prof.id_prof;
+            
+            // Load current grades
+            fetch('', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=get_professor_grades&id_prof=' + prof.id_prof
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    currentProfessorGrades = data.grades;
+                    displayGrades(data.grades);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Erreur lors du chargement des grades', 'error');
+            });
+
+            document.getElementById('gradesModal').style.display = 'block';
+        }
+
+        // Close grades modal
+        function closeGradesModal() {
+            document.getElementById('gradesModal').style.display = 'none';
+        }
+
+        // Display grades in list
+        function displayGrades(grades) {
+            const gradesList = document.getElementById('grades-list');
+            gradesList.innerHTML = '';
+
+            grades.forEach(grade => {
+                const gradeItem = document.createElement('div');
+                gradeItem.className = `grade-item ${grade.date_fin_grade ? '' : 'grade-current'}`;
+                gradeItem.innerHTML = `
+                    <div>
+                        <strong>Grade:</strong> ${grade.nom_grade} (${parseFloat(grade.salaire_par_seance).toFixed(2)} DH)
+                    </div>
+                    <div>
+                        <strong>Date de début:</strong> ${grade.date_debut_grade}
+                    </div>
+                    ${grade.date_fin_grade ? `<div><strong>Date de fin:</strong> ${grade.date_fin_grade}</div>` : ''}
+                    <div>
+                        <button class="btn btn-warning btn-sm" onclick="openEditGradeModal(${grade.id_dev})">
+                            Modifier
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteGrade(${grade.id_dev})">
+                            Supprimer
+                        </button>
+                    </div>
+                `;
+                gradesList.appendChild(gradeItem);
+            });
+        }
+
+        // Open edit grade modal
+        function openEditGradeModal(id_dev) {
+            const grade = currentProfessorGrades.find(g => g.id_dev == id_dev);
+            if (!grade) return;
+
+            document.getElementById('edit_id_dev').value = grade.id_dev;
+            document.getElementById('edit_grade').value = grade.nom_grade;
+            document.getElementById('edit_date_debut_grade').value = grade.date_debut_grade;
+            document.getElementById('edit_date_fin_grade').value = grade.date_fin_grade || '';
+
+            document.getElementById('editGradeModal').style.display = 'block';
+        }
+
+        // Close edit grade modal
+        function closeEditGradeModal() {
+            document.getElementById('editGradeModal').style.display = 'none';
+        }
+
+        // Show salary grid
+        function showSalaryGrid() {
+            document.getElementById('salaryGridModal').style.display = 'block';
+        }
+
+        // Close salary grid modal
+        function closeSalaryGridModal() {
+            document.getElementById('salaryGridModal').style.display = 'none';
+        }
+
+        // Handle add grade form submission
+        document.getElementById('addGradeForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            formData.append('action', 'add_grade');
+
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    closeGradesModal();
+                    openGradesModal(document.getElementById('grade_id_prof').value);
+                } else {
+                    showAlert(data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Erreur lors de l\'ajout du grade', 'error');
+            });
+        });
+
+        // Handle edit grade form submission
+        document.getElementById('editGradeForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            formData.append('action', 'update_grade');
+
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    closeEditGradeModal();
+                    openGradesModal(document.getElementById('grade_id_prof').value);
+                } else {
+                    showAlert(data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Erreur lors de la modification du grade', 'error');
+            });
+        });
+
+        // Delete grade
+        function deleteGrade(id_dev) {
+            if (confirm('Êtes-vous sûr de vouloir supprimer ce grade ?')) {
+                const formData = new FormData();
+                formData.append('action', 'delete_grade');
+                formData.append('id_dev', id_dev);
+
+                fetch('', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showAlert(data.message, 'success');
+                        openGradesModal(document.getElementById('grade_id_prof').value);
+                    } else {
+                        showAlert(data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('Erreur lors de la suppression du grade', 'error');
+                });
+            }
+        }
+    </script>
+</body>
+</html>

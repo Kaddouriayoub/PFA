@@ -382,6 +382,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             color: #7f8c8d;
             font-size: 12px;
         }
+
+        .management-btn.holidays {
+            background: #9b59b6;
+        }
+        .management-btn.holidays:hover {
+            background: #8e44ad;
+        }
     </style>
 </head>
 <body>
@@ -440,6 +447,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <a href="manage_seances.php" class="management-btn">
                     <strong>Gestion des Séances</strong><br>
                     <small>Enregistrer les séances enseignées</small>
+                </a>
+                <a href="manage_holidays.php" class="management-btn holidays">
+                    <strong>Gestion Jours Fériés/Grèves</strong><br>
+                    <small>Gérer les jours non travaillés</small>
                 </a>
             </div>
         </div>
@@ -757,6 +768,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 closeAddUserModal();
             }
         }
+
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const dateInput = document.querySelector('input[name="date_seance"]');
+            
+            dateInput.addEventListener('change', function() {
+                const selectedDate = this.value;
+                
+                fetch('check_date.php?date=' + selectedDate)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.blocked) {
+                            alert('Cette date est un ' + (data.type === 'ferie' ? 'jour férié' : 'jour de grève'));
+                            this.value = '';
+                        }
+                    });
+            });
+        });
 
         // Auto refresh statistics every 30 seconds
         setInterval(loadStatistics, 30000);

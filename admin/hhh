@@ -282,7 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         FROM Filiere f
                         JOIN Annee a ON f.id_filiere = a.id_filiere
                         JOIN Semestre s ON a.id_annee = s.id_annee
-                        JOIN Module m ON s.id_semestre = m.id_semestre
+                        JOIN Module m ON s.id_semestre = m.id_module
                         JOIN Element_Module em ON m.id_module = em.id_module
                         ORDER BY f.nom_filiere
                     ");
@@ -336,6 +336,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     echo json_encode(['success' => true, 'modules' => $modules]);
                     exit;
                 
+                case 'get_seance_details':
+                    $id_seance = intval($_POST['id_seance']);
+                    $stmt = $conn->prepare("
+                        SELECT sr.*, em.id_module, m.id_semestre, s.id_annee, a.id_filiere
+                        FROM Seance_Reelle sr
+                        JOIN Element_Module em ON sr.id_element = em.id_element
+                        JOIN Module m ON em.id_module = m.id_module
+                        JOIN Semestre s ON m.id_semestre = s.id_semestre
+                        JOIN Annee a ON s.id_annee = a.id_annee
+                        WHERE sr.id_seance = ?
+                    ");
+                    $stmt->execute([$id_seance]);
+                    $seance = $stmt->fetch(PDO::FETCH_ASSOC);
+                    
+                    if ($seance) {
+                        echo json_encode(['success' => true, 'seance' => $seance]);
+                    } else {
+                        echo json_encode(['success' => false, 'message' => 'Séance non trouvée']);
+                    }
+                    exit;
+
                 case 'get_elements_by_module':
                     $id_module = intval($_POST['id_module']);
                     $stmt = $conn->prepare("
@@ -348,6 +369,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $elements = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     echo json_encode(['success' => true, 'elements' => $elements]);
                     exit;
+                
+                    case 'update_seance':
+                        $id_seance = intval($_POST['id_seance']);
+                        $id_prof = intval($_POST['id_prof']);
+                        $id_element = intval($_POST['id_element']);
+                        $date_seance = $_POST['date_seance'];
+                        $type_seance = $_POST['type_seance'];
+                        $id_filiere = intval($_POST['id_filiere']);
+                        $id_annee = intval($_POST['id_annee']);
+                        $id_semestre = intval($_POST['id_semestre']);
+                        $id_module = intval($_POST['id_module']);
+                    
+                        if ($id_seance <= 0 || $id_prof <= 0 || $id_element <= 0 || empty($date_seance) || empty($type_seance)) {
+                            echo json_encode(['success' => false, 'message' => 'Paramètres manquants']);
+                            exit;
+                        }
+                    
+                        // Vérifier les limites avant la modification
+                        $currentCount = checkMonthlyLimit($conn, $id_prof, $date_seance);
+                        if ($currentCount >= 20) {
+                            echo json_encode(['success' => false, 'message' => 'Limite mensuelle atteinte pour ce professeur']);
+                            exit;
+                        }
+                    
+                        $dailyCount = checkDailyLimit($conn, $id_prof, $date_seance);
+                        if ($dailyCount >= 4) {
+                            echo json_encode(['success' => false, 'message' => 'Limite quotidienne atteinte pour ce professeur']);
+                            exit;
+                        }
+                    
+                        try {
+                            $stmt = $conn->prepare("
+                                UPDATE Seance_Reelle 
+                                SET id_prof = ?, id_element = ?, date_seance = ?, 
+                                    type_seance = ?, id_filiere = ?, id_niveau = ?, 
+                                    id_semestre = ?, id_module = ?
+                                WHERE id_seance = ?
+                            ");
+                            
+                            $stmt->execute([
+                                $id_prof, $id_element, $date_seance, $type_seance, 
+                                $id_filiere, $id_annee, $id_semestre, $id_module, 
+                                $id_seance
+                            ]);
+                            
+                            echo json_encode(['success' => true, 'message' => 'Séance mise à jour avec succès']);
+                        } catch (PDOException $e) {
+                            echo json_encode(['success' => false, 'message' => 'Erreur de base de données: ' . $e->getMessage()]);
+                        }
+                        exit;
                 
         }
     } catch (Exception $e) {
@@ -1183,7 +1254,7 @@ function updateMonthlyLimitDisplay(data) {
         addBtn.style.opacity = '1';
     } else {
         limitStatus.innerHTML = `<div style="color: #27ae60;">
-            <strong>✓ OK</strong> ${data.remaining} séances restantes pour ${data.month}.
+            <br/>${data.remaining} séances restantes pour ${data.month}.
         </div>`;
         // Ne pas réactiver automatiquement le bouton, la vérification journalière peut l'avoir désactivé
         if (!addBtn.disabled || addBtn.textContent === 'Limite mensuelle atteinte') {
@@ -1232,8 +1303,17 @@ function updateMonthlyLimitDisplay(data) {
 
 function resetSelect(selectId) {
     const select = document.getElementById(selectId);
-    select.innerHTML = '<option value="">Sélectionner...</option>';
-    select.disabled = true;
+    if (select) {
+        select.innerHTML = '<option value="">Sélectionner...</option>';
+        select.disabled = true;
+    }
+    
+    // Si c'est un select avec préfixe "edit_", on le gère aussi
+    const editSelect = document.getElementById('edit_' + selectId);
+    if (editSelect) {
+        editSelect.innerHTML = '<option value="">Sélectionner...</option>';
+        editSelect.disabled = true;
+    }
 }
 
 // 1. Modifier la fonction selectProfessor() pour filtrer les séances
@@ -1296,6 +1376,7 @@ function displayFilteredSeancesByProf(selectedProfId) {
                 <div class="professor-header" onclick="toggleProfessorSection(${profId})">
                     <div>
                         <strong>${profInfo.nom} ${profInfo.prenom}</strong>
+
                     </div>
                     <div>
                         <span class="seance-count">${stats.total} séance(s)</span>
@@ -1367,6 +1448,9 @@ function displayFilteredSeancesByProf(selectedProfId) {
                         <td>${seance.nom_filiere} - ${seance.niveau}</td>
                         <td>${statutBadge}</td>
                         <td>
+                            <button class="btn btn-edit" onclick="editSeance(${seance.id_seance})">
+                                Modifier
+                            </button>
                             <button class="btn btn-danger" onclick="deleteSeance(${seance.id_seance}, '${seance.nom_element}')">
                                 Supprimer
                             </button>
@@ -1425,6 +1509,7 @@ function displaySeancesByProf() {
                 <div class="professor-header" onclick="toggleProfessorSection(${profId})">
                     <div>
                         <strong>${profInfo.nom} ${profInfo.prenom}</strong>
+
                     </div>
                     <div>
                         <span class="seance-count">${stats.total} séance(s)</span>
@@ -1496,6 +1581,9 @@ function displaySeancesByProf() {
                         <td>${seance.nom_filiere} - ${seance.niveau}</td>
                         <td>${statutBadge}</td>
                         <td>
+                            <button class="btn btn-edit" onclick="editSeance(${seance.id_seance})">
+                                Modifier
+                            </button>
                             <button class="btn btn-danger" onclick="deleteSeance(${seance.id_seance}, '${seance.nom_element}')">
                                 Supprimer
                             </button>
@@ -1520,6 +1608,7 @@ function displaySeancesByProf() {
 
     container.innerHTML = html;
 }
+
         function toggleProfessorSection(profId) {
             const content = document.getElementById(`content-${profId}`);
             const toggle = document.getElementById(`toggle-${profId}`);
@@ -1542,6 +1631,45 @@ function displaySeancesByProf() {
                     alert('Erreur lors de la vérification de la date');
                 });
         }
+
+// Gestion des changements de filière dans le formulaire de modification
+document.getElementById('edit_id_filiere').addEventListener('change', function() {
+    if (this.value) {
+        loadAnneesForEdit(this.value, null, null, null, null);
+    } else {
+        resetSelect('edit_id_annee');
+        resetSelect('edit_id_semestre');
+        resetSelect('edit_id_module');
+        resetSelect('edit_id_element');
+    }
+});
+
+document.getElementById('edit_id_annee').addEventListener('change', function() {
+    if (this.value) {
+        loadSemestresForEdit(this.value, null, null, null);
+    } else {
+        resetSelect('edit_id_semestre');
+        resetSelect('edit_id_module');
+        resetSelect('edit_id_element');
+    }
+});
+
+document.getElementById('edit_id_semestre').addEventListener('change', function() {
+    if (this.value) {
+        loadModulesForEdit(this.value, null, null);
+    } else {
+        resetSelect('edit_id_module');
+        resetSelect('edit_id_element');
+    }
+});
+
+document.getElementById('edit_id_module').addEventListener('change', function() {
+    if (this.value) {
+        loadElementsForEdit(this.value, null);
+    } else {
+        resetSelect('edit_id_element');
+    }
+});
 
         // Handle seance form submission
 document.getElementById('seanceForm').addEventListener('submit', function(e) {
@@ -1643,6 +1771,390 @@ function deleteSeance(seanceId, seanceName) {
             setTimeout(() => {
                 container.innerHTML = '';
             }, 5000);
+        }
+        
+function editSeance(id_seance) {
+    if (!id_seance) {
+        showAlert('ID de séance invalide', 'error');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('action', 'get_seance_details');
+    formData.append('id_seance', id_seance);
+
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Erreur serveur');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data.success) {
+            throw new Error(data.message || 'Erreur inconnue');
+        }
+        
+        const seance = data.seance;
+        if (!seance) {
+            throw new Error('Séance non trouvée');
+        }
+        
+        // Créer le formulaire de modification
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.position = 'fixed';
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.width = '100%';
+        modal.style.height = '100%';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        modal.style.display = 'flex';
+        modal.style.justifyContent = 'center';
+        modal.style.alignItems = 'center';
+        modal.style.zIndex = '1000';
+        
+        // Charger les professeurs
+        fetch('', {
+            method: 'POST',
+            body: new FormData().append('action', 'get_professeurs')
+        })
+        .then(response => response.json())
+        .then(profsData => {
+            if (!profsData.success) {
+                throw new Error(profsData.message || 'Erreur lors du chargement des professeurs');
+            }
+            
+            const professeurs = profsData.professeurs;
+            
+            modal.innerHTML = `
+                <div class="modal-content" style="background: white; padding: 20px; border-radius: 8px; max-width: 600px; width: 100%;">
+                    <h2>Modifier la Séance</h2>
+                    <form id="edit-seance-form">
+                        <input type="hidden" name="action" value="update_seance">
+                        <input type="hidden" name="id_seance" value="${seance.id_seance}">
+                        
+                        <div class="form-group">
+                            <label for="edit_id_prof">Professeur:</label>
+                            <select id="edit_id_prof" name="id_prof" required>
+                                ${professeurs.map(p => 
+                                    `<option value="${p.id_prof}" ${p.id_prof == seance.id_prof ? 'selected' : ''}>
+                                        ${p.nom} ${p.prenom}
+                                    </option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="edit_date_seance">Date:</label>
+                            <input type="date" id="edit_date_seance" name="date_seance" required value="${seance.date_seance}">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="edit_type_seance">Type:</label>
+                            <select id="edit_type_seance" name="type_seance" required>
+                                <option value="Cours" ${seance.type_seance === 'Cours' ? 'selected' : ''}>Cours</option>
+                                <option value="TD" ${seance.type_seance === 'TD' ? 'selected' : ''}>TD</option>
+                                <option value="TP" ${seance.type_seance === 'TP' ? 'selected' : ''}>TP</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="edit_id_filiere">Filière:</label>
+                            <select id="edit_id_filiere" name="id_filiere" required>
+                                <option value="">Sélectionner une filière</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="edit_id_annee">Niveau:</label>
+                            <select id="edit_id_annee" name="id_annee" required disabled>
+                                <option value="">Sélectionner un niveau</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="edit_id_semestre">Semestre:</label>
+                            <select id="edit_id_semestre" name="id_semestre" required disabled>
+                                <option value="">Sélectionner un semestre</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="edit_id_module">Module:</label>
+                            <select id="edit_id_module" name="id_module" required disabled>
+                                <option value="">Sélectionner un module</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="edit_id_element">Élément:</label>
+                            <select id="edit_id_element" name="id_element" required disabled>
+                                <option value="">Sélectionner un élément</option>
+                            </select>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">Modifier</button>
+                        <button type="button" class="btn btn-secondary" onclick="closeModal(this)">Annuler</button>
+                    </form>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Charger la hiérarchie complète
+            loadFilieresForEdit(seance.id_filiere, seance.id_annee, seance.id_semestre, seance.id_module, seance.id_element);
+            
+            // Gérer la soumission du formulaire
+            document.getElementById('edit-seance-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                
+                fetch('', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        closeModal(modal);
+                        loadSeances();
+                        showAlert('Séance modifiée avec succès', 'success');
+                    } else {
+                        showAlert(data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('Erreur lors de la modification de la séance', 'error');
+                });
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showAlert('Erreur lors du chargement des professeurs', 'error');
+        });
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showAlert('Erreur lors de la récupération des détails de la séance', 'error');
+    });
+}
+
+function loadFilieresForEdit(id_filiere, id_annee, id_semestre, id_module, id_element) {
+    // Charger les filières
+    fetch('', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'action=get_filieres'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const select = document.getElementById('edit_id_filiere');
+            select.innerHTML = '<option value="">Sélectionner une filière</option>';
+            
+            data.filieres.forEach(filiere => {
+                const option = document.createElement('option');
+                option.value = filiere.id_filiere;
+                option.textContent = filiere.nom_filiere;
+                if (filiere.id_filiere == id_filiere) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+            
+            // Activer le champ et charger les années
+            select.disabled = false;
+            loadAnneesForEdit(id_filiere, id_annee, id_semestre, id_module, id_element);
+        }
+    });
+}
+
+function loadAnneesForEdit(id_filiere, id_annee, id_semestre, id_module, id_element) {
+    const formData = new FormData();
+    formData.append('action', 'get_annees');
+    formData.append('id_filiere', id_filiere);
+    
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const select = document.getElementById('edit_id_annee');
+            select.innerHTML = '<option value="">Sélectionner un niveau</option>';
+            select.disabled = false;
+            
+            data.annees.forEach(annee => {
+                const option = document.createElement('option');
+                option.value = annee.id_annee;
+                option.textContent = annee.niveau;
+                if (annee.id_annee == id_annee) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+            
+            // Activer le champ et charger les semestres
+            loadSemestresForEdit(id_annee, id_semestre, id_module, id_element);
+        }
+    });
+}
+
+function loadSemestresForEdit(id_annee, id_semestre, id_module, id_element) {
+    const formData = new FormData();
+    formData.append('action', 'get_semestres');
+    formData.append('id_annee', id_annee);
+    
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const select = document.getElementById('edit_id_semestre');
+            select.innerHTML = '<option value="">Sélectionner un semestre</option>';
+            select.disabled = false;
+            
+            data.semestres.forEach(semestre => {
+                const option = document.createElement('option');
+                option.value = semestre.id_semestre;
+                option.textContent = semestre.nom_semestre;
+                if (semestre.id_semestre == id_semestre) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+            
+            // Activer le champ et charger les modules
+            loadModulesForEdit(id_semestre, id_module, id_element);
+        }
+    });
+}
+
+function loadModulesForEdit(id_semestre, id_module, id_element) {
+    const formData = new FormData();
+    formData.append('action', 'get_modules');
+    formData.append('id_semestre', id_semestre);
+    
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const select = document.getElementById('edit_id_module');
+            select.innerHTML = '<option value="">Sélectionner un module</option>';
+            select.disabled = false;
+            
+            data.modules.forEach(module => {
+                const option = document.createElement('option');
+                option.value = module.id_module;
+                option.textContent = module.nom_module;
+                if (module.id_module == id_module) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+            
+            // Activer le champ et charger les éléments
+            loadElementsForEdit(id_module, id_element);
+        }
+    });
+}
+
+function loadElementsForEdit(id_module, id_element) {
+    const formData = new FormData();
+    formData.append('action', 'get_elements_by_module');
+    formData.append('id_module', id_module);
+    
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const select = document.getElementById('edit_id_element');
+            select.innerHTML = '<option value="">Sélectionner un élément</option>';
+            select.disabled = false;
+            
+            data.elements.forEach(element => {
+                const option = document.createElement('option');
+                option.value = element.id_element;
+                option.textContent = element.nom_element;
+                if (element.id_element == id_element) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+        }
+    });
+}
+
+function closeModal(element) {
+    const modal = element.closest('.modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+        function closeModal(button) {
+            const modal = button.closest('.modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        function generateProfessorOptions() {
+            let options = '';
+            professeurs.forEach(prof => {
+                options += `<option value="${prof.id_prof}">${prof.nom} ${prof.prenom}</option>`;
+            });
+            return options;
+        }
+
+        function generateElementOptions(id_module) {
+            let options = '';
+            elements.forEach(element => {
+                if (element.id_module === id_module) {
+                    options += `<option value="${element.id_element}">${element.nom_element}</option>`;
+                }
+            });
+            return options;
+        }
+
+        function generateFiliereOptions() {
+            let options = '';
+            filieres.forEach(filiere => {
+                options += `<option value="${filiere.id_filiere}">${filiere.nom_filiere}</option>`;
+            });
+            return options;
+        }
+
+        function generateNiveauOptions() {
+            let options = '';
+            niveaux.forEach(niveau => {
+                options += `<option value="${niveau.id_niveau}">${niveau.niveau}</option>`;
+            });
+            return options;
+        }
+
+        function generateSemestreOptions() {
+            let options = '';
+            semestres.forEach(semestre => {
+                options += `<option value="${semestre.id_semestre}">${semestre.nom_semestre}</option>`;
+            });
+            return options;
         }
     </script>
 </body>

@@ -34,12 +34,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         switch ($_POST['action']) {
             case 'get_modules':
                 $stmt = $conn->prepare("
-                    SELECT m.id_module, m.nom_module, s.nom_semestre, a.annee_universitaire, f.nom_filiere 
+                    SELECT m.id_module, m.nom_module, s.id_semestre, s.nom_semestre, a.id_annee, a.niveau, f.id_filiere, f.nom_filiere 
                     FROM Module m
                     JOIN Semestre s ON m.id_semestre = s.id_semestre
                     JOIN Annee a ON s.id_annee = a.id_annee
                     JOIN Filiere f ON a.id_filiere = f.id_filiere
-                    ORDER BY f.nom_filiere, a.annee_universitaire, s.nom_semestre, m.nom_module
+                    ORDER BY f.nom_filiere, a.niveau, s.nom_semestre, m.nom_module
                 ");
                 $stmt->execute();
                 $modules = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -61,11 +61,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
             case 'get_semestres':
                 $stmt = $conn->prepare("
-                    SELECT s.id_semestre, s.nom_semestre, a.annee_universitaire, f.nom_filiere 
+                    SELECT s.id_semestre, s.nom_semestre, a.niveau, f.id_filiere, f.nom_filiere 
                     FROM Semestre s
                     JOIN Annee a ON s.id_annee = a.id_annee
                     JOIN Filiere f ON a.id_filiere = f.id_filiere
-                    ORDER BY f.nom_filiere, a.annee_universitaire, s.nom_semestre
+                    ORDER BY f.nom_filiere, a.niveau, s.nom_semestre
                 ");
                 $stmt->execute();
                 $semestres = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -81,10 +81,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     exit;
                 }
                 
+                // Verify the semester exists
+                $stmt = $conn->prepare("
+                    SELECT s.id_semestre 
+                    FROM Semestre s
+                    JOIN Annee a ON s.id_annee = a.id_annee
+                    WHERE s.id_semestre = ?
+                ");
+                $stmt->execute([$id_semestre]);
+                
+                if (!$stmt->fetch()) {
+                    echo json_encode(['success' => false, 'message' => 'Semestre invalide']);
+                    exit;
+                }
+                
                 $stmt = $conn->prepare("INSERT INTO Module (nom_module, id_semestre) VALUES (?, ?)");
                 $stmt->execute([$nom_module, $id_semestre]);
                 
                 echo json_encode(['success' => true, 'message' => 'Module ajouté avec succès']);
+                exit;
+                
+            case 'update_module':
+                $id_module = intval($_POST['id_module']);
+                $nom_module = trim($_POST['nom_module']);
+                $id_semestre = intval($_POST['id_semestre']);
+                
+                if (empty($nom_module) || $id_semestre <= 0 || $id_module <= 0) {
+                    echo json_encode(['success' => false, 'message' => 'Tous les champs sont obligatoires']);
+                    exit;
+                }
+                
+                // Vérifier que le semestre existe
+                $stmt = $conn->prepare("SELECT id_semestre FROM Semestre WHERE id_semestre = ?");
+                $stmt->execute([$id_semestre]);
+                if (!$stmt->fetch()) {
+                    echo json_encode(['success' => false, 'message' => 'Semestre invalide']);
+                    exit;
+                }
+                
+                // Mettre à jour le module
+                $stmt = $conn->prepare("UPDATE Module SET nom_module = ?, id_semestre = ? WHERE id_module = ?");
+                $stmt->execute([$nom_module, $id_semestre, $id_module]);
+                
+                echo json_encode(['success' => true, 'message' => 'Module modifié avec succès']);
                 exit;
                 
             case 'add_element':
@@ -101,6 +140,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmt->execute([$nom_element, $volume_horaire, $id_module]);
                 
                 echo json_encode(['success' => true, 'message' => 'Élément ajouté avec succès']);
+                exit;
+                
+            case 'update_element':
+                $id_element = intval($_POST['id_element']);
+                $nom_element = trim($_POST['nom_element']);
+                $volume_horaire = intval($_POST['volume_horaire']);
+                
+                if (empty($nom_element) || $volume_horaire <= 0 || $id_element <= 0) {
+                    echo json_encode(['success' => false, 'message' => 'Tous les champs sont obligatoires']);
+                    exit;
+                }
+                
+                $stmt = $conn->prepare("UPDATE Element_Module SET nom_element = ?, volume_horaire = ? WHERE id_element = ?");
+                $stmt->execute([$nom_element, $volume_horaire, $id_element]);
+                
+                echo json_encode(['success' => true, 'message' => 'Élément modifié avec succès']);
                 exit;
                 
             case 'delete_module':
@@ -136,6 +191,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 echo json_encode(['success' => true, 'message' => 'Élément supprimé avec succès']);
                 exit;
+            
+            case 'get_all_filieres':
+                $stmt = $conn->prepare("SELECT id_filiere, nom_filiere FROM Filiere ORDER BY nom_filiere");
+                $stmt->execute();
+                $filieres = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                echo json_encode(['success' => true, 'filieres' => $filieres]);
+                exit;
         }
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'message' => 'Erreur: ' . $e->getMessage()]);
@@ -148,236 +210,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <html>
 <head>
     <title>Gestion des Modules - ENSIAS</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            background: #f5f7fa;
-            color: #333;
-        }
-        
-        .header {
-            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
-            color: white;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        .back-btn {
-            background: #95a5a6;
-            color: white;
-            padding: 10px 20px;
-            text-decoration: none;
-            border-radius: 5px;
-            display: inline-block;
-            margin-bottom: 20px;
-            transition: background 0.3s;
-        }
-        
-        .back-btn:hover {
-            background: #7f8c8d;
-        }
-        
-        .management-section {
-            background: white;
-            padding: 25px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        }
-        
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-block;
-            margin: 5px;
-            font-size: 14px;
-            transition: all 0.3s;
-        }
-        
-        .btn-primary { 
-            background: #3498db; 
-            color: white; 
-        }
-        
-        .btn-success { 
-            background: #27ae60; 
-            color: white; 
-        }
-        
-        .btn-warning { 
-            background: #f39c12; 
-            color: white; 
-        }
-        
-        .btn-danger { 
-            background: #e74c3c; 
-            color: white; 
-        }
-        
-        .btn:hover {
-            opacity: 0.9;
-            transform: translateY(-2px);
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        
-        th, td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        
-        th {
-            background-color: #f8f9fa;
-            font-weight: 600;
-            color: #2c3e50;
-        }
-        
-        tr:hover {
-            background-color: #f5f7fa;
-        }
-        
-        .badge {
-            padding: 5px 10px;
-            border-radius: 15px;
-            font-size: 12px;
-            font-weight: bold;
-            display: inline-block;
-        }
-        
-        .module-details {
-            background-color: #f8f9fa;
-            border-left: 4px solid #3498db;
-            margin: 10px 0;
-            padding: 15px;
-            border-radius: 0 5px 5px 0;
-        }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0,0,0,0.5);
-            backdrop-filter: blur(5px);
-        }
-        
-        .modal-content {
-            background-color: #fff;
-            margin: 10% auto;
-            padding: 25px;
-            border-radius: 8px;
-            width: 500px;
-            max-width: 90%;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-            animation: modalFadeIn 0.3s;
-        }
-        
-        @keyframes modalFadeIn {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .close {
-            color: #aaa;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: color 0.3s;
-        }
-        
-        .close:hover {
-            color: #333;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #2c3e50;
-        }
-        
-        .form-group input, 
-        .form-group select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            box-sizing: border-box;
-            font-size: 14px;
-            transition: border 0.3s;
-        }
-        
-        .form-group input:focus, 
-        .form-group select:focus {
-            border-color: #3498db;
-            outline: none;
-        }
-        
-        .alert {
-            padding: 12px 15px;
-            margin: 15px 0;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-        
-        .alert-success {
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        
-        .alert-error {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .loading {
-            text-align: center;
-            padding: 30px;
-            color: #7f8c8d;
-        }
-        
-        .section-title {
-            color: #2c3e50;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #3498db;
-        }
-        
-        .elements-table {
-            margin-top: 15px;
-            width: 100%;
-        }
-        
-        .elements-table th {
-            background-color: #e8f4fc;
-        }
-    </style>
+    <link rel="stylesheet" href="manage_modules.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
     <div class="header">
@@ -417,13 +251,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     <input type="text" id="add_nom_module" name="nom_module" required>
                 </div>
                 <div class="form-group">
+                    <label for="add_niveau">Niveau:</label>
+                    <select id="add_niveau" name="niveau" required onchange="loadFilieresByNiveau('add')">
+                        <option value="">Sélectionner un niveau</option>
+                        <option value="1A">1ère année (1A)</option>
+                        <option value="2A">2ème année (2A)</option>
+                        <option value="3A">3ème année (3A)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="add_id_filiere">Filière:</label>
+                    <select id="add_id_filiere" name="id_filiere" required onchange="loadSemestresByFiliereAndNiveau('add')" disabled>
+                        <option value="">Sélectionner une filière</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="add_id_semestre">Semestre:</label>
-                    <select id="add_id_semestre" name="id_semestre" required>
+                    <select id="add_id_semestre" name="id_semestre" required disabled>
                         <option value="">Sélectionner un semestre</option>
                     </select>
                 </div>
                 <button type="submit" class="btn btn-success">Ajouter</button>
                 <button type="button" class="btn" onclick="closeAddModuleModal()">Annuler</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Module Modal -->
+    <div id="editModuleModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditModuleModal()">&times;</span>
+            <h3>Modifier le module</h3>
+            <form id="editModuleForm">
+                <input type="hidden" id="edit_id_module" name="id_module">
+                <div class="form-group">
+                    <label for="edit_nom_module">Nom du module:</label>
+                    <input type="text" id="edit_nom_module" name="nom_module" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_niveau">Niveau:</label>
+                    <select id="edit_niveau" name="niveau" required onchange="loadFilieresByNiveau('edit')">
+                        <option value="">Sélectionner un niveau</option>
+                        <option value="1A">1ère année (1A)</option>
+                        <option value="2A">2ème année (2A)</option>
+                        <option value="3A">3ème année (3A)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit_id_filiere">Filière:</label>
+                    <select id="edit_id_filiere" name="id_filiere" required onchange="loadSemestresByFiliereAndNiveau('edit')">
+                        <option value="">Sélectionner une filière</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit_id_semestre">Semestre:</label>
+                    <select id="edit_id_semestre" name="id_semestre" required>
+                        <option value="">Sélectionner un semestre</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-success">Enregistrer</button>
+                <button type="button" class="btn" onclick="closeEditModuleModal()">Annuler</button>
             </form>
         </div>
     </div>
@@ -445,6 +332,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
                 <button type="submit" class="btn btn-success">Ajouter</button>
                 <button type="button" class="btn" onclick="closeAddElementModal()">Annuler</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Element Modal -->
+    <div id="editElementModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditElementModal()">&times;</span>
+            <h3>Modifier l'élément</h3>
+            <form id="editElementForm">
+                <input type="hidden" id="edit_id_element" name="id_element">
+                <div class="form-group">
+                    <label for="edit_nom_element">Nom de l'élément:</label>
+                    <input type="text" id="edit_nom_element" name="nom_element" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_volume_horaire">Volume horaire (heures):</label>
+                    <input type="number" id="edit_volume_horaire" name="volume_horaire" min="1" required>
+                </div>
+                <button type="submit" class="btn btn-success">Enregistrer</button>
+                <button type="button" class="btn" onclick="closeEditElementModal()">Annuler</button>
             </form>
         </div>
     </div>
@@ -496,25 +404,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    semestres = data.semestres;
-                    populateSemestreSelect();
+                    // Store the complete semestre objects with all properties
+                    semestres = data.semestres.map(semestre => ({
+                        id_semestre: semestre.id_semestre,
+                        nom_semestre: semestre.nom_semestre,
+                        niveau: semestre.niveau,
+                        id_filiere: semestre.id_filiere,
+                        nom_filiere: semestre.nom_filiere
+                    }));
                 }
             })
             .catch(error => {
                 console.error('Error loading semestres:', error);
-            });
-        }
-
-        // Populate semestre select dropdown
-        function populateSemestreSelect() {
-            const select = document.getElementById('add_id_semestre');
-            select.innerHTML = '<option value="">Sélectionner un semestre</option>';
-            
-            semestres.forEach(semestre => {
-                const option = document.createElement('option');
-                option.value = semestre.id_semestre;
-                option.textContent = `${semestre.nom_filiere} - ${semestre.annee_universitaire} - ${semestre.nom_semestre}`;
-                select.appendChild(option);
             });
         }
 
@@ -531,10 +432,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <table>
                     <thead>
                         <tr>
-                            <th>ID</th>
                             <th>Nom</th>
                             <th>Filière</th>
-                            <th>Année</th>
+                            <th>Niveau</th>
                             <th>Semestre</th>
                             <th>Actions</th>
                         </tr>
@@ -545,17 +445,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             modules.forEach(module => {
                 html += `
                     <tr>
-                        <td>${module.id_module}</td>
                         <td><strong>${module.nom_module}</strong></td>
                         <td>${module.nom_filiere}</td>
-                        <td>${module.annee_universitaire}</td>
+                        <td><span class="niveau-badge">${module.niveau}</span></td>
                         <td>${module.nom_semestre}</td>
                         <td>
                             <button class="btn btn-primary" onclick="showModuleElements(${module.id_module}, '${module.nom_module}')">
-                                Voir éléments
+                                <i class="fas fa-list"></i> Éléments
+                            </button>
+                            <button class="btn btn-warning" onclick="openEditModuleModal(${module.id_module}, '${module.nom_module}', '${module.niveau}', '${module.id_annee}', '${module.id_filiere}', '${module.nom_filiere}', '${module.id_semestre}')">
+                                <i class="fas fa-edit"></i> Modifier
                             </button>
                             <button class="btn btn-danger" onclick="deleteModule(${module.id_module}, '${module.nom_module}')">
-                                Supprimer
+                                <i class="fas fa-trash"></i> Supprimer
                             </button>
                         </td>
                     </tr>
@@ -565,7 +467,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 Chargement des éléments...
                             </div>
                             <button class="btn btn-success" onclick="openAddElementModal(${module.id_module})">
-                                Ajouter un élément
+                                <i class="fas fa-plus"></i> Ajouter un élément
                             </button>
                         </td>
                     </tr>
@@ -609,7 +511,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 <table class="elements-table">
                                     <thead>
                                         <tr>
-                                            <th>ID</th>
                                             <th>Nom</th>
                                             <th>Volume Horaire</th>
                                             <th>Actions</th>
@@ -621,12 +522,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             data.elements.forEach(element => {
                                 elementsHtml += `
                                     <tr>
-                                        <td>${element.id_element}</td>
                                         <td>${element.nom_element}</td>
                                         <td>${element.volume_horaire} heures</td>
                                         <td>
+                                            <button class="btn btn-warning" onclick="openEditElementModal(${element.id_element}, '${element.nom_element}', ${element.volume_horaire})">
+                                                <i class="fas fa-edit"></i> Modifier
+                                            </button>
                                             <button class="btn btn-danger" onclick="deleteElement(${element.id_element}, '${element.nom_element}')">
-                                                Supprimer
+                                                <i class="fas fa-trash"></i> Supprimer
                                             </button>
                                         </td>
                                     </tr>
@@ -657,11 +560,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         function openAddModuleModal() {
             document.getElementById('addModuleModal').style.display = 'block';
             document.getElementById('addModuleForm').reset();
+            document.getElementById('add_niveau').value = '';
+            document.getElementById('add_id_filiere').innerHTML = '<option value="">Sélectionner une filière</option>';
+            document.getElementById('add_id_filiere').disabled = true;
+            document.getElementById('add_id_semestre').innerHTML = '<option value="">Sélectionner un semestre</option>';
+            document.getElementById('add_id_semestre').disabled = true;
         }
 
         // Close add module modal
         function closeAddModuleModal() {
             document.getElementById('addModuleModal').style.display = 'none';
+        }
+
+        // Open edit module modal
+        function openEditModuleModal(moduleId, moduleName, niveau, id_annee, filiereId, filiereName, semestreId) {
+            document.getElementById('editModuleModal').style.display = 'block';
+            document.getElementById('edit_id_module').value = moduleId;
+            document.getElementById('edit_nom_module').value = moduleName;
+            
+            // Activer la modification du niveau
+            const niveauSelect = document.getElementById('edit_niveau');
+            niveauSelect.value = niveau;
+            niveauSelect.disabled = false; // On active la modification du niveau
+            
+            // Charger les filières pour ce niveau
+            loadFilieresByNiveau('edit');
+            
+            // Définir la filière
+            const filiereSelect = document.getElementById('edit_id_filiere');
+            filiereSelect.value = filiereId;
+            filiereSelect.disabled = false; // On active la modification de la filière
+            
+            // Charger les semestres pour cette filière et niveau
+            loadSemestresByFiliereAndNiveau('edit');
+            
+            // Définir le semestre
+            document.getElementById('edit_id_semestre').value = semestreId;
+        }
+
+        // Close edit module modal
+        function closeEditModuleModal() {
+            document.getElementById('editModuleModal').style.display = 'none';
         }
 
         // Open add element modal
@@ -674,6 +613,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         // Close add element modal
         function closeAddElementModal() {
             document.getElementById('addElementModal').style.display = 'none';
+        }
+
+        // Open edit element modal
+        function openEditElementModal(elementId, elementName, volumeHoraire) {
+            document.getElementById('editElementModal').style.display = 'block';
+            document.getElementById('edit_id_element').value = elementId;
+            document.getElementById('edit_nom_element').value = elementName;
+            document.getElementById('edit_volume_horaire').value = volumeHoraire;
+        }
+
+        // Close edit element modal
+        function closeEditElementModal() {
+            document.getElementById('editElementModal').style.display = 'none';
         }
 
         // Handle add module form submission
@@ -700,6 +652,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             .catch(error => {
                 console.error('Error:', error);
                 showAlert('Erreur lors de l\'ajout du module', 'error');
+            });
+        });
+
+        // Handle edit module form submission
+        document.getElementById('editModuleForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            formData.append('action', 'update_module');
+
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    closeEditModuleModal();
+                    loadModules();
+                } else {
+                    showAlert(data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Erreur lors de la modification du module', 'error');
             });
         });
 
@@ -743,7 +722,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                     <table class="elements-table">
                                         <thead>
                                             <tr>
-                                                <th>ID</th>
                                                 <th>Nom</th>
                                                 <th>Volume Horaire</th>
                                                 <th>Actions</th>
@@ -755,12 +733,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 data.elements.forEach(element => {
                                     elementsHtml += `
                                         <tr>
-                                            <td>${element.id_element}</td>
                                             <td>${element.nom_element}</td>
                                             <td>${element.volume_horaire} heures</td>
                                             <td>
+                                                <button class="btn btn-warning" onclick="openEditElementModal(${element.id_element}, '${element.nom_element}', ${element.volume_horaire})">
+                                                    <i class="fas fa-edit"></i> Modifier
+                                                </button>
                                                 <button class="btn btn-danger" onclick="deleteElement(${element.id_element}, '${element.nom_element}')">
-                                                    Supprimer
+                                                    <i class="fas fa-trash"></i> Supprimer
                                                 </button>
                                             </td>
                                         </tr>
@@ -783,6 +763,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             .catch(error => {
                 console.error('Error:', error);
                 showAlert('Erreur lors de l\'ajout de l\'élément', 'error');
+            });
+        });
+
+        // Handle edit element form submission
+        document.getElementById('editElementForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            formData.append('action', 'update_element');
+
+            fetch('', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    closeEditElementModal();
+                    // Refresh the elements list for this module
+                    const moduleRow = document.querySelector(`tr[id^="module-elements-"]`);
+                    if (moduleRow) {
+                        const moduleId = moduleRow.id.split('-')[2];
+                        showModuleElements(moduleId, '');
+                    }
+                } else {
+                    showAlert(data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Erreur lors de la modification de l\'élément', 'error');
             });
         });
 
@@ -864,16 +876,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }, 5000);
         }
 
+        // Load filieres based on selected niveau
+        function loadFilieresByNiveau(mode = 'add') {
+            const prefix = mode === 'edit' ? 'edit_' : 'add_';
+            const niveau = document.getElementById(`${prefix}niveau`).value;
+            const filiereSelect = document.getElementById(`${prefix}id_filiere`);
+            
+            if (!niveau) {
+                filiereSelect.disabled = true;
+                filiereSelect.innerHTML = '<option value="">Sélectionner une filière</option>';
+                document.getElementById(`${prefix}id_semestre`).disabled = true;
+                document.getElementById(`${prefix}id_semestre`).innerHTML = '<option value="">Sélectionner un semestre</option>';
+                return;
+            }
+            
+            // Charger TOUTES les filières depuis la base de données
+            fetch('', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=get_all_filieres'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    filiereSelect.disabled = false;
+                    filiereSelect.innerHTML = '<option value="">Sélectionner une filière</option>';
+                    
+                    data.filieres.forEach(filiere => {
+                        const option = document.createElement('option');
+                        option.value = filiere.id_filiere;
+                        option.textContent = filiere.nom_filiere;
+                        filiereSelect.appendChild(option);
+                    });
+                    
+                    // Réinitialiser le semestre
+                    document.getElementById(`${prefix}id_semestre`).disabled = true;
+                    document.getElementById(`${prefix}id_semestre`).innerHTML = '<option value="">Sélectionner un semestre</option>';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        // Load semestres based on selected filiere and niveau
+        function loadSemestresByFiliereAndNiveau(mode = 'add') {
+            const prefix = mode === 'edit' ? 'edit_' : 'add_';
+            const niveau = document.getElementById(`${prefix}niveau`).value;
+            const filiereId = document.getElementById(`${prefix}id_filiere`).value;
+            const semestreSelect = document.getElementById(`${prefix}id_semestre`);
+            
+            if (!filiereId) {
+                semestreSelect.disabled = true;
+                semestreSelect.innerHTML = '<option value="">Sélectionner un semestre</option>';
+                return;
+            }
+            
+            // Filter semestres for this niveau and filiere
+            const filteredSemestres = semestres.filter(semestre => 
+                semestre.niveau === niveau && semestre.id_filiere == filiereId
+            );
+            
+            if (filteredSemestres.length === 0) {
+                semestreSelect.disabled = true;
+                semestreSelect.innerHTML = '<option value="">Aucun semestre disponible</option>';
+                return;
+            }
+            
+            semestreSelect.disabled = false;
+            semestreSelect.innerHTML = '<option value="">Sélectionner un semestre</option>';
+            
+            filteredSemestres.forEach(semestre => {
+                const option = document.createElement('option');
+                option.value = semestre.id_semestre;
+                option.textContent = semestre.nom_semestre;
+                semestreSelect.appendChild(option);
+            });
+        }
+
         // Close modal when clicking outside
         window.onclick = function(event) {
             const addModal = document.getElementById('addModuleModal');
+            const editModal = document.getElementById('editModuleModal');
             const addElementModal = document.getElementById('addElementModal');
+            const editElementModal = document.getElementById('editElementModal');
             
             if (event.target === addModal) {
                 closeAddModuleModal();
             }
+            if (event.target === editModal) {
+                closeEditModuleModal();
+            }
             if (event.target === addElementModal) {
                 closeAddElementModal();
+            }
+            if (event.target === editElementModal) {
+                closeEditElementModal();
             }
         }
     </script>
