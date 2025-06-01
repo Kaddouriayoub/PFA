@@ -1,4 +1,4 @@
-<?php
+<?php 
 // index.php
 session_start();
 
@@ -17,79 +17,247 @@ if (isset($_SESSION['user_id']) && isset($_SESSION['role'])) {
 }
 ?>
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Connexion - ENSIAS Payment</title>
     <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        * {
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        .login-box {
-            width: 350px;
-            padding: 30px;
+
+        .login-container {
             background: white;
-            border-radius: 10px;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            border-radius: 20px;
+            padding: 40px;
+            width: 400px;
+            max-width: 90vw;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e0e0e0;
         }
-        h2 {
+
+        .logo-container {
             text-align: center;
-            color: #333;
             margin-bottom: 30px;
         }
-        input {
+
+        .logo {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 15px;
+            position: relative;
+            display: inline-block;
+        }
+
+        .logo img {
             width: 100%;
-            padding: 12px;
-            margin: 10px 0;
-            box-sizing: border-box;
-            border: 1px solid #ddd;
-            border-radius: 5px;
+            height: 100%;
+            object-fit: contain;
+            filter: drop-shadow(0 10px 25px rgba(255, 107, 107, 0.3));
+            transition: transform 0.3s ease;
+        }
+
+        .logo img:hover {
+            transform: scale(1.05);
+        }
+
+        .brand-name {
+            color: #ff6b6b;
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+        }
+
+        .login-title {
+            color: #333;
+            font-size: 32px;
+            font-weight: 300;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .form-group {
+            position: relative;
+            margin-bottom: 25px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 18px 20px;
+            background: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            color: #333;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        .form-input:focus {
+            border-color: #ff6b6b;
+            box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.1);
+            background: white;
+        }
+
+        .form-input::placeholder {
+            color: #999;
+        }
+
+        .input-icon {
+            position: absolute;
+            right: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+            pointer-events: none;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+
+        .password-toggle:hover {
+            color: #666;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 10px;
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.3);
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 107, 107, 0.4);
+        }
+
+        .submit-btn:active {
+            transform: translateY(0);
+        }
+
+        .error {
+            background: rgba(231, 76, 60, 0.1);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+            color: #ff6b6b;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            text-align: center;
             font-size: 14px;
         }
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 12px;
-            border: none;
-            width: 100%;
-            border-radius: 5px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: opacity 0.3s;
-        }
-        button:hover {
-            opacity: 0.9;
-        }
+
         .test-accounts {
-            margin-top: 25px;
-            padding: 15px;
+            margin-top: 30px;
+            padding: 20px;
             background: #f8f9fa;
-            border-radius: 5px;
-            font-size: 12px;
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
         }
-        .error {
-            color: #e74c3c;
-            text-align: center;
+
+        .test-accounts h4 {
+            color: #ff6b6b;
             margin-bottom: 15px;
-            padding: 10px;
-            background: #fdf2f2;
-            border-radius: 5px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .test-accounts p {
+            color: #666;
+            font-size: 12px;
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        .test-accounts strong {
+            color: #333;
+        }
+
+        /* Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(-5px); }
+            50% { transform: translateY(5px); }
+        }
+
+        .logo {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        .logo img {
+            animation: inherit;
+        }
+
+        .login-container {
+            animation: slideUp 0.6s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 30px 25px;
+                margin: 20px;
+            }
+            
+            .login-title {
+                font-size: 28px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="login-box">
-        <h2>Connexion ENSIAS</h2>
+    <div class="login-container">
+        <div class="logo-container">
+            <div class="logo">
+                <img src="assets/Ensias.png" alt="ENSIAS Logo">
+            </div>
+        </div>
+        
+        <h1 class="login-title">Login</h1>
         
         <?php if (isset($_GET['error'])): ?>
             <div class="error">
-                <?php 
+                <?php
                 if ($_GET['error'] == 'invalid') {
                     echo "Identifiants incorrects";
                 } elseif ($_GET['error'] == 'role_unknown') {
@@ -102,17 +270,44 @@ if (isset($_SESSION['user_id']) && isset($_SESSION['role'])) {
         <?php endif; ?>
         
         <form action="auth.php" method="post">
-            <input type="text" name="username" placeholder="Nom d'utilisateur" required>
-            <input type="password" name="password" placeholder="Mot de passe" required>
-            <button type="submit">Se connecter</button>
+            <div class="form-group">
+                <input type="text" name="username" class="form-input" placeholder="Username" required>
+                <div class="input-icon"></div>
+            </div>
+            
+            <div class="form-group">
+                <input type="password" name="password" class="form-input" placeholder="Password" required id="password">
+                <div class="password-toggle" onclick="togglePassword()"></div>
+            </div>
+            
+            <button type="submit" class="submit-btn">Submit</button>
         </form>
-        
-        <div class="test-accounts">
-            <strong>Identifiants de test:</strong><br>
-            Admin: admin / admin123<br>
-            Professeur: prof / prof123<br>
-            Financier: financier / finance123
-        </div>
     </div>
+
+    <script>
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.querySelector('.password-toggle');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.textContent = '🙈';
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.textContent = '👁';
+            }
+        }
+
+        // Animation au focus des inputs
+        document.querySelectorAll('.form-input').forEach(input => {
+            input.addEventListener('focus', function() {
+                this.parentElement.style.transform = 'scale(1.02)';
+            });
+            
+            input.addEventListener('blur', function() {
+                this.parentElement.style.transform = 'scale(1)';
+            });
+        });
+    </script>
 </body>
 </html>
